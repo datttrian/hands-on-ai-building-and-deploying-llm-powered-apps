@@ -1,0 +1,2 @@
+export ALLOW_RESET=TRUE
+export OPENAI_API_KEY="sk-your-openai-api-key"
