@@ -13,12 +13,11 @@ from chainlit.types import AskFileResponse
 
 import chromadb
 from chromadb.config import Settings
-from langchain.chains import LLMChain
+from langchain.chains import LLMChain, RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import PDFPlumberLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import Document, StrOutputParser
+from langchain.schema import Document
 from langchain.schema.embeddings import Embeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
@@ -88,18 +87,12 @@ def create_search_engine(
     # NOTE: we do not need this for production
     search_engine = Chroma(client=client, client_settings=client_settings)
     search_engine._client.reset()
-    ##########################################################################
-    # Exercise 1b:
-    # Now we have defined our encoder model and initialized our search engine
-    # client, please create the search engine from documents
-    ##########################################################################
     search_engine = Chroma.from_documents(
         client=client,
         documents=docs,
         embedding=embeddings,
         client_settings=client_settings,
     )
-    ##########################################################################
 
     return search_engine
 
@@ -132,13 +125,7 @@ async def on_chat_start():
     await msg.update()
 
     # Indexing documents into our search engine
-    ##########################################################################
-    # Exercise 1a:
-    # Add OpenAI's embedding model as the encoder. The most standard one to
-    # use is text-embedding-ada-002.
-    ##########################################################################
     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    ##########################################################################
     try:
         search_engine = await cl.make_async(create_search_engine)(
             docs=docs, embeddings=embeddings
@@ -149,18 +136,24 @@ async def on_chat_start():
     msg.content = f"`{file.name}` loaded. You can now ask questions!"
     await msg.update()
 
-    model = ChatOpenAI(model="gpt-3.5-turbo-16k-0613", streaming=True)
+    ##########################################################################
+    # Exercise 1:
+    # Now we have search engine setup, our Chat with PDF application can do
+    # RAG architecture pattern. Please use the appropriate RetrievalQA Chain
+    # from Langchain.
+    #
+    # Remember, we would want to set the model temperature to
+    # 0 to ensure model outputs do not vary across runs, and we would want to
+    # also return sources to our answers.
+    ##########################################################################
+    model = ChatOpenAI(model="gpt-3.5-turbo-16k-0613", temperature=0, streaming=True)
 
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "You are Chainlit GPT, a helpful assistant.",
-            ),
-            ("human", "{question}"),
-        ]
+    chain = RetrievalQAWithSourcesChain.from_chain_type(
+        llm=model,
+        chain_type="stuff",
+        retriever=search_engine.as_retriever(max_tokens_limit=4097),
     )
-    chain = LLMChain(llm=model, prompt=prompt, output_parser=StrOutputParser())
+    ##########################################################################
 
     # We are saving the chain in user_session, so we do not have to rebuild
     # it every single time.
@@ -171,10 +164,41 @@ async def on_chat_start():
 async def main(message: cl.Message):
 
     # Let's load the chain from user_session
-    chain = cl.user_session.get("chain")  # type: LLMChain
+    chain = cl.user_session.get("chain")  # type: RetrievalQAWithSourcesChain
 
-    response = await chain.arun(
-        question=message.content, callbacks=[cl.LangchainCallbackHandler()]
+    response = await chain.acall(
+        message.content,
+        callbacks=[cl.AsyncLangchainCallbackHandler(stream_final_answer=True)],
     )
+    answer = response["answer"]
+    sources = response["sources"].strip()
 
-    await cl.Message(content=response).send()
+    # Get all of the documents from user session
+    docs = cl.user_session.get("docs")
+    metadatas = [doc.metadata for doc in docs]
+    all_sources = [m["source"] for m in metadatas]
+
+    # Adding sources to the answer
+    source_elements = []
+    if sources:
+        found_sources = []
+
+        # Add the sources to the message
+        for source in sources.split(","):
+            source_name = source.strip().replace(".", "")
+            # Get the index of the source
+            try:
+                index = all_sources.index(source_name)
+            except ValueError:
+                continue
+            text = docs[index].page_content
+            found_sources.append(source_name)
+            # Create the text element referenced in the message
+            source_elements.append(cl.Text(content=text, name=source_name))
+
+        if found_sources:
+            answer += f"\nSources: {', '.join(found_sources)}"
+        else:
+            answer += "\nNo sources found"
+
+    await cl.Message(content=answer, elements=source_elements).send()
