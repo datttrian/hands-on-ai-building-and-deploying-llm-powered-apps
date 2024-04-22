@@ -1,8 +1,9 @@
 # Chroma compatibility issue resolution
 # https://docs.trychroma.com/troubleshooting#sqlite
-__import__('pysqlite3')
+__import__("pysqlite3")
 import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
 from tempfile import NamedTemporaryFile
 from typing import List
@@ -27,7 +28,7 @@ from langchain.vectorstores.base import VectorStore
 # Exercise 2:
 # Please import the copied prompt scaffolds from prompt.py
 ##############################################################################
-from prompt import ...
+from prompt import EXAMPLE_PROMPT, PROMPT
 
 
 def process_file(*, file: AskFileResponse) -> List[Document]:
@@ -37,7 +38,7 @@ def process_file(*, file: AskFileResponse) -> List[Document]:
 
     Args:
         file (AskFileResponse): input file to be processed
-    
+
     Raises:
         ValueError: when we fail to process PDF files. We consider PDF file
         processing failure when there's no text returned. For example, PDFs
@@ -57,8 +58,7 @@ def process_file(*, file: AskFileResponse) -> List[Document]:
         documents = loader.load()
 
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=3000,
-            chunk_overlap=100
+            chunk_size=3000, chunk_overlap=100
         )
         docs = text_splitter.split_documents(documents)
 
@@ -72,7 +72,9 @@ def process_file(*, file: AskFileResponse) -> List[Document]:
         return docs
 
 
-def create_search_engine(*, docs: List[Document], embeddings: Embeddings) -> VectorStore:
+def create_search_engine(
+    *, docs: List[Document], embeddings: Embeddings
+) -> VectorStore:
     """Takes a list of Langchain Documents and an embedding model API wrapper
     and build a search index using a VectorStore.
 
@@ -86,27 +88,21 @@ def create_search_engine(*, docs: List[Document], embeddings: Embeddings) -> Vec
     """
     # Initialize Chromadb client to enable resetting and disable telemtry
     client = chromadb.EphemeralClient()
-    client_settings=Settings(
-        allow_reset=True,
-        anonymized_telemetry=False
-    )
+    client_settings = Settings(allow_reset=True, anonymized_telemetry=False)
 
     # Reset the search engine to ensure we don't use old copies.
     # NOTE: we do not need this for production
-    search_engine = Chroma(
-        client=client,
-        client_settings=client_settings
-    )
+    search_engine = Chroma(client=client, client_settings=client_settings)
     search_engine._client.reset()
     search_engine = Chroma.from_documents(
         client=client,
         documents=docs,
         embedding=embeddings,
-        client_settings=client_settings 
+        client_settings=client_settings,
     )
 
     return search_engine
-    
+
 
 @cl.on_chat_start
 async def on_chat_start():
@@ -129,20 +125,17 @@ async def on_chat_start():
     # Process and save data in the user session
     msg = cl.Message(content=f"Processing `{file.name}`...")
     await msg.send()
-   
+
     docs = process_file(file=file)
     cl.user_session.set("docs", docs)
     msg.content = f"`{file.name}` processed. Loading ..."
     await msg.update()
 
     # Indexing documents into our search engine
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-ada-002"
-    )
+    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
     try:
         search_engine = await cl.make_async(create_search_engine)(
-            docs=docs,
-            embeddings=embeddings
+            docs=docs, embeddings=embeddings
         )
     except Exception as e:
         await cl.Message(content=f"Error: {e}").send()
@@ -150,11 +143,7 @@ async def on_chat_start():
     msg.content = f"`{file.name}` loaded. You can now ask questions!"
     await msg.update()
 
-    model = ChatOpenAI(
-        model="gpt-3.5-turbo-16k-0613",
-        temperature=0,
-        streaming=True
-    )
+    model = ChatOpenAI(model="gpt-3.5-turbo-16k-0613", temperature=0, streaming=True)
 
     ##########################################################################
     # Exercise 3:
@@ -165,7 +154,7 @@ async def on_chat_start():
         llm=model,
         chain_type="stuff",
         retriever=search_engine.as_retriever(max_tokens_limit=4097),
-        ...,
+        chain_type_kwargs={"prompt": PROMPT, "document_prompt": EXAMPLE_PROMPT},
     )
 
     # We are saving the chain in user_session, so we do not have to rebuild
@@ -181,7 +170,7 @@ async def main(message: cl.Message):
 
     response = await chain.acall(
         message.content,
-        callbacks=[cl.AsyncLangchainCallbackHandler(stream_final_answer=True)]
+        callbacks=[cl.AsyncLangchainCallbackHandler(stream_final_answer=True)],
     )
     answer = response["answer"]
     sources = response["sources"].strip()
