@@ -10,10 +10,9 @@ from typing import List
 
 import chainlit as cl
 from chainlit.types import AskFileResponse
-
 import chromadb
 from chromadb.config import Settings
-from langchain.chains import LLMChain, RetrievalQAWithSourcesChain
+from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import PDFPlumberLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -23,11 +22,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain.vectorstores.base import VectorStore
 
-
-##############################################################################
-# Exercise 2:
-# Please import the copied prompt scaffolds from prompt.py
-##############################################################################
 from prompt import EXAMPLE_PROMPT, PROMPT
 
 
@@ -145,11 +139,6 @@ async def on_chat_start():
 
     model = ChatOpenAI(model="gpt-3.5-turbo-16k-0613", temperature=0, streaming=True)
 
-    ##########################################################################
-    # Exercise 3:
-    # Please modify this chain's initiation with the proper kwargs to take in
-    # custom prompts.
-    ##########################################################################
     chain = RetrievalQAWithSourcesChain.from_chain_type(
         llm=model,
         chain_type="stuff",
@@ -164,7 +153,6 @@ async def on_chat_start():
 
 @cl.on_message
 async def main(message: cl.Message):
-
     # Let's load the chain from user_session
     chain = cl.user_session.get("chain")  # type: RetrievalQAWithSourcesChain
 

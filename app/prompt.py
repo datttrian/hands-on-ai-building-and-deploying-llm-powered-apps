@@ -1,7 +1,8 @@
 ##############################################################################
 # Exercise 1:
-# Please navigate and find the Langchain prompt templates used for
-# RetrievalQAWithSources chain and how it is initialized.
+# Please utilize Chainlit's app playground for prompt engineering and
+# experimentation. Once done, modify the prompts template below with your
+# newly developed prompts.
 ##############################################################################
 from langchain.prompts import PromptTemplate
 
